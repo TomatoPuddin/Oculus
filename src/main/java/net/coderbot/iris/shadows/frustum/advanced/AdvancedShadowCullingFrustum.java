@@ -1,6 +1,8 @@
 package net.coderbot.iris.shadows.frustum.advanced;
 
 import net.coderbot.iris.vendored.joml.Math;
+import com.seibel.distanthorizons.api.interfaces.override.rendering.IDhApiShadowCullingFrustum;
+import com.seibel.distanthorizons.coreapi.util.math.Mat4f;
 import net.coderbot.iris.shadows.frustum.BoxCuller;
 import net.coderbot.iris.vendored.joml.Matrix4f;
 import net.coderbot.iris.vendored.joml.Vector3f;
@@ -28,7 +30,7 @@ import net.minecraft.world.phys.AABB;
  * are not sensitive to the specific internal ordering of planes and corners, in order to avoid potential bugs at the
  * cost of slightly more computations.</p>
  */
-public class AdvancedShadowCullingFrustum extends Frustum {
+public class AdvancedShadowCullingFrustum extends Frustum implements IDhApiShadowCullingFrustum {
 	private static final int MAX_CLIPPING_PLANES = 13;
 
 	/**
@@ -63,9 +65,11 @@ public class AdvancedShadowCullingFrustum extends Frustum {
 	private int planeCount = 0;
 
 	// The center coordinates of this frustum.
-	private double x;
-	private double y;
-	private double z;
+    public double x;
+	public double y;
+	public double z;
+	private int worldMinYDH;
+	private int worldMaxYDH;
 
 	private final Vector3f shadowLightVectorFromOrigin;
 	protected final BoxCuller boxCuller;
@@ -278,6 +282,7 @@ public class AdvancedShadowCullingFrustum extends Frustum {
 		this.z = cameraZ;
 	}
 
+	@Override
 	public boolean isVisible(AABB aabb) {
 		if (boxCuller != null && boxCuller.isCulled(aabb)) {
 			return false;
@@ -358,5 +363,37 @@ public class AdvancedShadowCullingFrustum extends Frustum {
 		}
 
 		return 2;
+	}
+
+
+	/**
+	 * Checks corner visibility.
+	 * @param minX Minimum X value of the AABB.
+	 * @param minY Minimum Y value of the AABB.
+	 * @param minZ Minimum Z value of the AABB.
+	 * @param maxX Maximum X value of the AABB.
+	 * @param maxY Maximum Y value of the AABB.
+	 * @param maxZ Maximum Z value of the AABB.
+	 * @return true if visible, false if not.
+	 */
+	public boolean checkCornerVisibilityBool(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
+		for (int i = 0; i < planeCount; ++i) {
+			if (planes[i].x * (planes[i].x < 0 ? minX : maxX) + planes[i].y * (planes[i].y < 0 ? minY : maxY) + planes[i].z * (planes[i].z < 0 ? minZ : maxZ) < -planes[i].w) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	@Override
+	public void update(int worldMinBlockY, int worldMaxBlockY, Mat4f worldViewProjection) {
+		this.worldMinYDH = worldMinBlockY;
+		this.worldMaxYDH = worldMaxBlockY;
+	}
+
+	@Override
+	public boolean intersects(int lodBlockPosMinX, int lodBlockPosMinZ, int lodBlockWidth, int lodDetailLevel) {
+		return this.isVisible(lodBlockPosMinX, this.worldMinYDH, lodBlockPosMinZ, lodBlockPosMinX + lodBlockWidth, this.worldMaxYDH, lodBlockPosMinZ + lodBlockWidth) != 0;
 	}
 }

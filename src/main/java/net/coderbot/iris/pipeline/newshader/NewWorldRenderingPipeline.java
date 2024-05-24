@@ -15,6 +15,7 @@ import net.coderbot.iris.colorspace.ColorSpace;
 import net.coderbot.iris.colorspace.ColorSpaceComputeConverter;
 import net.coderbot.iris.colorspace.ColorSpaceConverter;
 import net.coderbot.iris.colorspace.ColorSpaceFragmentConverter;
+import net.coderbot.iris.compat.dh.DHCompat;
 import net.coderbot.iris.features.FeatureFlags;
 import net.coderbot.iris.gbuffer_overrides.matching.InputAvailability;
 import net.coderbot.iris.gbuffer_overrides.matching.SpecialCondition;
@@ -186,6 +187,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 	private final ShaderPack pack;
 	private PackShadowDirectives shadowDirectives;
 	private ColorSpace currentColorSpace;
+	private DHCompat dhCompat;
 
 	public NewWorldRenderingPipeline(ProgramSet programSet) throws IOException {
 		ShaderPrinter.resetPrintState();
@@ -331,7 +333,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 
 			ProgramSamplers.CustomTextureSamplerInterceptor customTextureSamplerInterceptor = ProgramSamplers.customTextureSamplerInterceptor(builder, customTextureManager.getCustomTextureIdMap().getOrDefault(TextureStage.GBUFFERS_AND_SHADOW, Object2ObjectMaps.emptyMap()));
 
-			IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, flipped, renderTargets, false);
+			IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, flipped, renderTargets, false, this);
 			IrisSamplers.addCustomTextures(builder, customTextureManager.getIrisCustomTextures());
 
 			if (!shouldBindPBR) {
@@ -367,12 +369,14 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 			return builder.build();
 		};
 
+		this.dhCompat = new DHCompat(this, shadowDirectives.isDhShadowEnabled().orElse(true));
+
 		IntFunction<ProgramSamplers> createShadowTerrainSamplers = (programId) -> {
 			ProgramSamplers.Builder builder = ProgramSamplers.builder(programId, IrisSamplers.WORLD_RESERVED_TEXTURE_UNITS);
 
 			ProgramSamplers.CustomTextureSamplerInterceptor customTextureSamplerInterceptor = ProgramSamplers.customTextureSamplerInterceptor(builder, customTextureManager.getCustomTextureIdMap().getOrDefault(TextureStage.GBUFFERS_AND_SHADOW, Object2ObjectMaps.emptyMap()));
 
-			IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, () -> flippedBeforeShadow, renderTargets, false);
+			IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, () -> flippedBeforeShadow, renderTargets, false, this);
 			IrisSamplers.addCustomTextures(builder, customTextureManager.getIrisCustomTextures());
 
 			if (!shouldBindPBR) {
@@ -577,7 +581,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 					ProgramSamplers.customTextureSamplerInterceptor(builder,
 						customTextureManager.getCustomTextureIdMap(textureStage));
 
-				IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, flipped, renderTargets, false);
+				IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, flipped, renderTargets, false, this);
 				IrisSamplers.addCustomTextures(builder, customTextureManager.getIrisCustomTextures());
 				IrisSamplers.addCustomImages(customTextureSamplerInterceptor, customImages);
 				IrisImages.addRenderTargetImages(builder, flipped, renderTargets);
@@ -640,7 +644,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 					ProgramSamplers.customTextureSamplerInterceptor(builder,
 						customTextureManager.getCustomTextureIdMap(textureStage));
 
-				IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, flipped, renderTargets, true);
+				IrisSamplers.addRenderTargetSamplers(customTextureSamplerInterceptor, flipped, renderTargets, true, this);
 				IrisSamplers.addCustomTextures(builder, customTextureManager.getIrisCustomTextures());
 				IrisSamplers.addCompositeSamplers(builder, renderTargets);
 				IrisSamplers.addCustomImages(customTextureSamplerInterceptor, customImages);
@@ -764,7 +768,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 				ProgramSamplers.customTextureSamplerInterceptor(samplers,
 						customTextureManager.getCustomTextureIdMap().getOrDefault(textureStage, Object2ObjectMaps.emptyMap()));
 
-		IrisSamplers.addRenderTargetSamplers(samplerHolder, flipped, renderTargets, false);
+		IrisSamplers.addRenderTargetSamplers(samplerHolder, flipped, renderTargets, false, this);
 		IrisSamplers.addCustomTextures(samplerHolder, customTextureManager.getIrisCustomTextures());
 		IrisImages.addRenderTargetImages(images, flipped, renderTargets);
 		IrisImages.addCustomImages(images, customImages);
@@ -779,17 +783,42 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 		IrisSamplers.addCustomImages(samplerHolder, customImages);
 
 		if (isShadowPass || IrisSamplers.hasShadowSamplers(samplerHolder)) {
-			if (!isShadowPass) {
-				shadowTargetsSupplier.get();
-			}
-
-			IrisSamplers.addShadowSamplers(samplerHolder, Objects.requireNonNull(shadowRenderTargets), null, separateHardwareSamplers);
+			IrisSamplers.addShadowSamplers(samplerHolder, shadowTargetsSupplier.get(), null, separateHardwareSamplers);
 		}
 
 		if (isShadowPass || IrisImages.hasShadowImages(images)) {
-			// Note: hasShadowSamplers currently queries for shadow images too, so the shadow render targets will be
-			// created by this point... that's sorta ugly, though.
-			IrisImages.addShadowColorImages(images, Objects.requireNonNull(shadowRenderTargets), null);
+			IrisImages.addShadowColorImages(images, shadowTargetsSupplier.get(), null);
+		}
+	}
+
+	public void addGbufferOrShadowSamplers(SamplerHolder samplers, ImageHolder images, Supplier<ImmutableSet<Integer>> flipped,
+										   boolean isShadowPass, boolean hasTexture, boolean hasLightmap, boolean hasOverlay) {
+		TextureStage textureStage = TextureStage.GBUFFERS_AND_SHADOW;
+
+		ProgramSamplers.CustomTextureSamplerInterceptor samplerHolder =
+				ProgramSamplers.customTextureSamplerInterceptor(samplers,
+						customTextureManager.getCustomTextureIdMap().getOrDefault(textureStage, Object2ObjectMaps.emptyMap()));
+
+		IrisSamplers.addRenderTargetSamplers(samplerHolder, flipped, renderTargets, false, this);
+		IrisSamplers.addCustomTextures(samplerHolder, customTextureManager.getIrisCustomTextures());
+		IrisImages.addRenderTargetImages(images, flipped, renderTargets);
+		IrisImages.addCustomImages(images, customImages);
+
+		if (!shouldBindPBR) {
+			shouldBindPBR = IrisSamplers.hasPBRSamplers(samplerHolder);
+		}
+
+		IrisSamplers.addLevelSamplers(samplers, this, whitePixel, hasTexture, hasLightmap, hasOverlay);
+		IrisSamplers.addWorldDepthSamplers(samplerHolder, this.renderTargets);
+		IrisSamplers.addNoiseSampler(samplerHolder, this.customTextureManager.getNoiseTexture());
+		IrisSamplers.addCustomImages(samplerHolder, customImages);
+
+		if (IrisSamplers.hasShadowSamplers(samplerHolder)) {
+			IrisSamplers.addShadowSamplers(samplerHolder, shadowTargetsSupplier.get(), null, separateHardwareSamplers);
+		}
+
+		if (isShadowPass || IrisImages.hasShadowImages(images)) {
+			IrisImages.addShadowColorImages(images, shadowTargetsSupplier.get(), null);
 		}
 	}
 
@@ -931,6 +960,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 			main.height, depthBufferFormat, packDirectives);
 
 		if (changed) {
+			dhCompat.onResolutionChanged();
 			beginRenderer.recalculateSizes();
 			prepareRenderer.recalculateSizes();
 			deferredRenderer.recalculateSizes();
@@ -1220,6 +1250,7 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 		Minecraft.getInstance().getMainRenderTarget().bindWrite(false);
 
 		renderTargets.destroy();
+		dhCompat.clearPipeline();
 
 		customImages.forEach(GlImage::destroy);
 
@@ -1252,6 +1283,11 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 		return sunPathRotation;
 	}
 
+	@Override
+	public DHCompat getDHCompat() {
+		return dhCompat;
+	}
+
 	protected AbstractTexture getWhitePixel() {
 		return whitePixel;
 	}
@@ -1269,5 +1305,47 @@ public class NewWorldRenderingPipeline implements WorldRenderingPipeline, CoreWo
 	@Override
 	public void setIsMainBound(boolean bound) {
 		isMainBound = bound;
+	}
+
+	public Optional<ProgramSource> getDHTerrainShader() {
+		return resolver.resolve(ProgramId.DhTerrain);
+	}
+
+	public Optional<ProgramSource> getDHWaterShader() {
+		return resolver.resolve(ProgramId.DhWater);
+	}
+
+	public Optional<ProgramSource> getDHShadowShader() {
+		return resolver.resolve(ProgramId.DhShadow);
+	}
+
+	public CustomUniforms getCustomUniforms() {
+		return customUniforms;
+	}
+
+	public GlFramebuffer createDHFramebuffer(ProgramSource sources, boolean trans) {
+		return renderTargets.createDHFramebuffer(trans ? flippedAfterTranslucent : flippedAfterPrepare,
+				sources.getDirectives().getDrawBuffers());
+	}
+
+	public ImmutableSet<Integer> getFlippedBeforeShadow() {
+		return flippedBeforeShadow;
+	}
+
+	public ImmutableSet<Integer> getFlippedAfterPrepare() {
+		return flippedAfterPrepare;
+	}
+
+	public ImmutableSet<Integer> getFlippedAfterTranslucent() {
+		return flippedAfterTranslucent;
+	}
+
+	public GlFramebuffer createDHFramebufferShadow(ProgramSource sources) {
+
+		return shadowRenderTargets.createDHFramebuffer(ImmutableSet.of(), new int[]{0, 1});
+	}
+
+	public boolean hasShadowRenderTargets() {
+		return shadowRenderTargets != null;
 	}
 }

@@ -1,6 +1,7 @@
 package net.coderbot.iris.pipeline;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
+import net.coderbot.iris.compat.dh.DHCompat;
 import net.coderbot.iris.features.FeatureFlags;
 import net.coderbot.iris.gbuffer_overrides.matching.SpecialCondition;
 import net.coderbot.iris.gbuffer_overrides.state.RenderTargetStateListener;
@@ -17,16 +18,16 @@ import java.util.List;
 import java.util.OptionalInt;
 
 public interface WorldRenderingPipeline {
-    void onShadowBufferChange();
+	void onShadowBufferChange();
 
-    void beginLevelRendering();
+	void beginLevelRendering();
 	void renderShadows(LevelRendererAccessor worldRenderer, Camera camera);
 	void addDebugText(List<String> messages);
 	OptionalInt getForcedShadowRenderDistanceChunksForDisplay();
 
-    Object2ObjectMap<Tri<String, TextureType, TextureStage>, String> getTextureMap();
+	Object2ObjectMap<Tri<String, TextureType, TextureStage>, String> getTextureMap();
 
-    WorldRenderingPhase getPhase();
+	WorldRenderingPhase getPhase();
 
 	void beginSodiumTerrainRendering();
 	void endSodiumTerrainRendering();
@@ -64,4 +65,5 @@ public interface WorldRenderingPipeline {
 
 	float getSunPathRotation();
 
+	DHCompat getDHCompat();
 }

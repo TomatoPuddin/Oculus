@@ -32,23 +32,17 @@ import net.coderbot.iris.gl.texture.TextureType;
 import net.coderbot.iris.helpers.Tri;
 import net.coderbot.iris.pipeline.ShaderPrinter;
 import net.coderbot.iris.pipeline.newshader.ShaderAttributeInputs;
-import net.coderbot.iris.pipeline.transform.parameter.AttributeParameters;
-import net.coderbot.iris.pipeline.transform.parameter.ComputeParameters;
-import net.coderbot.iris.pipeline.transform.parameter.Parameters;
-import net.coderbot.iris.pipeline.transform.parameter.SodiumParameters;
-import net.coderbot.iris.pipeline.transform.parameter.TextureStageParameters;
-import net.coderbot.iris.pipeline.transform.parameter.VanillaParameters;
-import net.coderbot.iris.pipeline.transform.transformer.AttributeTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.CommonTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.CompatibilityTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.CompositeCoreTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.CompositeTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.SodiumCoreTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.SodiumTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.TextureTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.VanillaCoreTransformer;
-import net.coderbot.iris.pipeline.transform.transformer.VanillaTransformer;
+import net.coderbot.iris.pipeline.transform.parameter.*;
+import net.coderbot.iris.pipeline.transform.transformer.*;
 import net.coderbot.iris.shaderpack.texture.TextureStage;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The transform patcher (triforce 2) uses glsl-transformer's ASTTransformer to
@@ -267,6 +261,9 @@ public class TransformPatcher {
 									case VANILLA:
 										VanillaTransformer.transform(transformer, tree, root, (VanillaParameters) parameters);
 										break;
+									case DH:
+										DHTransformer.transform(transformer, tree, root, parameters);
+										break;
 									default:
 										throw new UnsupportedOperationException("Unknown patch type: " + parameters.patch);
 								}
@@ -377,6 +374,18 @@ public class TransformPatcher {
 			Object2ObjectMap<Tri<String, TextureType, TextureStage>, String> textureMap) {
 		return transform(vertex, geometry, fragment,
 				new VanillaParameters(Patch.VANILLA, textureMap, alpha, isLines, hasChunkOffset, inputs, geometry != null));
+	}
+
+	public static Map<PatchShaderType, String> patchDH(
+			String vertex, String geometry, String fragment,
+			Object2ObjectMap<Tri<String, TextureType, TextureStage>, String> textureMap) {
+		return transform(vertex, geometry, fragment,
+				new Parameters(Patch.DH, textureMap) {
+					@Override
+					public TextureStage getTextureStage() {
+						return TextureStage.GBUFFERS_AND_SHADOW;
+					}
+				});
 	}
 
 	public static Map<PatchShaderType, String> patchSodium(String vertex, String geometry, String fragment,

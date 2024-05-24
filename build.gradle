@@ -1,11 +1,12 @@
 plugins {
-	id 'dev.architectury.loom' version '1.2-SNAPSHOT'
+	id 'com.github.johnrengelman.shadow' version '8.1.1'
+	id 'dev.architectury.loom' version '1.6-SNAPSHOT'
 	id 'maven-publish'
 }
 
 loom {
-    silentMojangMappingsLicense()
-	
+	silentMojangMappingsLicense()
+
 	forge {
 		mixinConfigs = [
 				"mixins.oculus.json",
@@ -20,6 +21,12 @@ loom {
 		]
 	}
 	mixin.defaultRefmapName = "oculus-mixins-refmap.json"
+}
+
+configurations {
+	shadow {
+		transitive = false
+	}
 }
 
 sourceCompatibility = JavaVersion.VERSION_17
@@ -44,9 +51,11 @@ dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings loom.officialMojangMappings()
 	forge "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-	
+
 	modCompileOnly "maven.modrinth:rubidium:0.6.2c"
 	//modCompileOnly "me.jellysquid.mods:Rubidium:0.6.3"
+
+	modImplementation fileTree(dir: 'libs', include: ['*.jar'])
 }
 
 processResources {

@@ -1,5 +1,6 @@
 package net.coderbot.iris.uniforms;
 
+import net.coderbot.iris.compat.dh.DHCompat;
 import com.mojang.math.Matrix4f;
 import net.coderbot.iris.gl.uniform.UniformHolder;
 import net.coderbot.iris.pipeline.ShadowRenderer;
@@ -20,9 +21,12 @@ public final class MatrixUniforms {
 		// TODO: In some cases, gbufferProjectionInverse takes on a value much different than OptiFine...
 		// We need to audit Mojang's linear algebra.
 		addMatrix(uniforms, "Projection", CapturedRenderingState.INSTANCE::getGbufferProjection);
+		addDHMatrix(uniforms, "Projection", DHCompat::getProjection);
 		addShadowMatrix(uniforms, "ModelView", () ->
 				ShadowRenderer.createShadowModelView(directives.getSunPathRotation(), directives.getShadowDirectives().getIntervalSize()).last().pose().copy());
-		addShadowArrayMatrix(uniforms, "Projection", () -> ShadowMatrices.createOrthoMatrix(directives.getShadowDirectives().getDistance()));
+		addShadowArrayMatrix(uniforms, "Projection", () -> ShadowMatrices.createOrthoMatrix(directives.getShadowDirectives().getDistance(),
+				directives.getShadowDirectives().getNearPlane() < 0 ? -DHCompat.getRenderDistance() : directives.getShadowDirectives().getNearPlane(),
+				directives.getShadowDirectives().getFarPlane() < 0 ? DHCompat.getRenderDistance() : directives.getShadowDirectives().getFarPlane()));
 	}
 
 	private static void addMatrix(UniformHolder uniforms, String name, Supplier<Matrix4f> supplier) {
@@ -30,6 +34,13 @@ public final class MatrixUniforms {
 			.uniformMatrix(PER_FRAME, "gbuffer" + name, supplier)
 			.uniformJomlMatrix(PER_FRAME, "gbuffer" + name + "Inverse", new Inverted(supplier))
 			.uniformMatrix(PER_FRAME, "gbufferPrevious" + name, new Previous(supplier));
+	}
+
+	private static void addDHMatrix(UniformHolder uniforms, String name, Supplier<net.coderbot.iris.vendored.joml.Matrix4f> supplier) {
+		uniforms
+				.uniformJomlMatrix(PER_FRAME, "dh" + name, supplier)
+				.uniformJomlMatrix(PER_FRAME, "dh" + name + "Inverse", new InvertedJoml(supplier))
+				.uniformJomlMatrix(PER_FRAME, "dhPrevious" + name, new PreviousJoml(supplier));
 	}
 
 	private static void addShadowMatrix(UniformHolder uniforms, String name, Supplier<Matrix4f> supplier) {
@@ -65,6 +76,19 @@ public final class MatrixUniforms {
 			matrix4f.invert();
 
 			return matrix4f;
+		}
+	}
+
+	private static class InvertedJoml implements Supplier<net.coderbot.iris.vendored.joml.Matrix4f> {
+		private final Supplier<net.coderbot.iris.vendored.joml.Matrix4f> parent;
+
+		InvertedJoml(Supplier<net.coderbot.iris.vendored.joml.Matrix4f> parent) {
+			this.parent = parent;
+		}
+
+		@Override
+		public net.coderbot.iris.vendored.joml.Matrix4f get() {
+			return parent.get().invert();
 		}
 	}
 
@@ -104,6 +128,27 @@ public final class MatrixUniforms {
 			Matrix4f previous = this.previous.copy();
 
 			this.previous = copy;
+
+			return previous;
+		}
+	}
+
+	private static class PreviousJoml implements Supplier<net.coderbot.iris.vendored.joml.Matrix4f> {
+		private final Supplier<net.coderbot.iris.vendored.joml.Matrix4f> parent;
+		private net.coderbot.iris.vendored.joml.Matrix4f previous;
+
+		PreviousJoml(Supplier<net.coderbot.iris.vendored.joml.Matrix4f> parent) {
+			this.parent = parent;
+			this.previous = new net.coderbot.iris.vendored.joml.Matrix4f();
+		}
+
+		@Override
+		public net.coderbot.iris.vendored.joml.Matrix4f get() {
+			// PERF: Don't copy + allocate these matrices every time?
+			net.coderbot.iris.vendored.joml.Matrix4f previous = this.previous;
+
+			this.previous = new net.coderbot.iris.vendored.joml.Matrix4f();
+			parent.get().get(this.previous);
 
 			return previous;
 		}
